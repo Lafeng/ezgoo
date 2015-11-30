@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ReRules>
+
+  <Html>
+    <ReRule>
+      <!--    直接/search;手机;js不可用: rwt将直接在html中-->
+      <PathPattern>/(search|webhp)</PathPattern>
+      <ContentPattern flags="g">
+		onmousedown="[^\"]+?"
+	  </ContentPattern>
+      <Replacement>target="_blank" referrer="no-referrer"</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- html.css: backgroud image from gstatic -->
+      <ContentPattern flags="g" complex="true">
+		(?:[htps:]+)?//([-\w]+\.(?:gstatic|googleu|googlea))
+	  </ContentPattern>
+      <Replacement>/!$1</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- www域下资源 -->
+      <ContentPattern flags="g">
+		(?:[htps:]+)?//www\.google\.com
+	  </ContentPattern>
+      <Replacement/>
+    </ReRule>
+	
+    <ReRule>
+      <!-- 其它域资源 -->
+      <ContentPattern flags="g">
+		(['\"])(?:[htps:]+)?//((?:en|id|ip|mt|kh)\w*\.google\.)
+	  </ContentPattern>
+      <Replacement>$1/!$2</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- 顶部promo -->
+      <ContentPattern>pushdown_promo:</ContentPattern>
+      <Replacement>_:</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- html.js: dynamic string concat -->
+      <ContentPattern flags="g">"//"</ContentPattern>
+      <Replacement>"/!"</Replacement>
+    </ReRule>
+	
+	<ReRule>
+      <!--  /async/irc?async=-->
+      <PathPattern>/irc</PathPattern>
+      <ContentPattern flags="g">jsaction(=[\\"]{0,2}mouse)</ContentPattern>
+      <Replacement>ja$1</Replacement>
+    </ReRule>
+	
+	<ReRule>
+      <!--  /maps: ["//geo0.ggpht.com/cbk?cb_client -->
+      <PathPattern>^/maps</PathPattern>
+      <ContentPattern flags="g">"//([-\w]+\.ggpht\.)</ContentPattern>
+      <Replacement>"/!$1</Replacement>
+    </ReRule>
+  </Html>
+
+  <Js>
+    <ReRule>
+      <!-- 重写主域资源绝对地址 -->
+      <ContentPattern flags="g">
+		(?:[htps:]+)?//www\.google\.com
+	  </ContentPattern>
+      <Replacement/>
+    </ReRule>
+	
+    <ReRule>
+      <!-- js context: literal css url -->
+      <PathPattern>^/xjs</PathPattern>
+      <ContentPattern flags="g" complex="true">url\(//(\w)</ContentPattern>
+      <Replacement>url(/!$1</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- js context: dynamic load new Image; -->
+      <PathPattern>/rs=</PathPattern>
+	  <!-- insert=modern replace=outdate -->
+	  <SchemeExpr>insert=modern</SchemeExpr>
+      <ContentPattern flags="g">\.src=([^)};]+)</ContentPattern>
+      <Replacement>.src=_DyRp($1)</Replacement>
+      <InsertHeader><![CDATA[
+	  if(typeof window==="object"){
+      window._DyRp=window._DyRp||function(a){if(typeof(a)==="string"&&a.slice(0,5)!="data:"){if(a.indexOf("//"+location.host)>=0){var h=a.indexOf("/!",8);return h>0?a.slice(h):a;}else if(/\.(?:google|gstatic)/.test(a)){return a.replace(/^([htps:]+)?\/\//,"/!")}}return a;};
+	  (function(){var _nativeImage=Image;Image=function(){Object.defineProperty(this,"src",{set:function(v){(new _nativeImage).src=_DyRp(v);}});}})(); }
+      ]]></InsertHeader>
+	  <InsertHeaderBak><![CDATA[
+      window._DyRp=window._DyRp||function(a){if(typeof(a)==="string"&&a.slice(0,5)!="data:"){if(a.indexOf("//"+location.host)>=0){var h=a.indexOf("/!",8);return h>0?a.slice(h):a;}else if(/\.(?:google|gstatic)/.test(a)){return a.replace(/^([htps:]+)?\/\//,"/!")}}return a;};
+      ]]></InsertHeaderBak>
+    </ReRule>
+	
+    <ReRule>
+      <!-- maps: /js/worker-eval.js redefine DyRp-->
+      <PathPattern>/js/worker-eval\.js</PathPattern>
+      <ContentPattern>^</ContentPattern>
+      <Replacement> <![CDATA[
+	  _DyRp=function(a){if(typeof(a)==="string"&&a.slice(0,5)!="data:"){if(a.indexOf("//"+location.host)>=0){var h=a.indexOf("/!",8);return h>0?a.slice(h):a;}else if(/\.(?:google|gstatic)/.test(a)){return a.replace(/^([htps:]+)?\/\//,"/!")}}return a;};
+	  ]]> </Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- js context: other literal url join -->
+      <ContentPattern flags="g" complex="true">
+		"(?:[htps:]+)?//([-.\w]+\.(?:google|gstatic))
+	  </ContentPattern>
+      <Replacement>"/!$1</Replacement>
+    </ReRule>
+  </Js>
+
+  <Json>
+    <ReRule>
+      <!-- json.html: onmousedown\\x3d\\x22return rwt( -->
+      <PathPattern>/(?:search|webhp)</PathPattern>
+      <ContentPattern flags="g">onmousedown\\\\x3d</ContentPattern>
+      <Replacement>target\\x3d\\x22_blank\\x22 referrer\\x3d\\x22no-referrer\\x22 rwt\\x3d</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- json.css: 一些动态部件的image url -->
+      <ContentPattern flags="g" complex="true">
+		(\()?(\\\\x22)?\\/\\/([-\w]+\.gstatic)
+	  </ContentPattern>
+      <Replacement>$1$2\/!$3</Replacement>
+    </ReRule>
+
+    <ReRule>
+      <!-- json.js: id.google/verify -->
+      <PathPattern>/(?:search|webhp)</PathPattern>
+      <ContentPattern  complex="true">
+		(?:http(?:s)?:)?\\/\\/(id\.google)
+	  </ContentPattern>
+      <Replacement>/!$1</Replacement>
+    </ReRule>
+	
+    <ReRule>
+      <!-- json.html: e.g. img src\\x3d\\x22https:\/\/encrypted.google.com\/finance\/chart -->
+      <PathPattern>/(?:search|webhp)</PathPattern>
+      <ContentPattern>(src(?:\\{2}x\w{2}){2})([htps:]+)?(?:\\/){2}</ContentPattern>
+      <Replacement>$1/!</Replacement>
+    </ReRule>
+  </Json>
+
+  <Css>
+    <ReRule>
+      <!-- html.css: backgroud image from gstatic -->
+      <ContentPattern flags="g" complex="true">
+		(?:[htps:]+)?//([-\w]+\.(?:gstatic|google))
+	  </ContentPattern>
+      <Replacement>/!$1</Replacement>
+    </ReRule>
+  </Css>
+</ReRules>
