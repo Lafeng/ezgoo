@@ -1,0 +1,19 @@
+{
+	"ImportPath": "github.com/Lafeng/ezgoo",
+	"GoVersion": "go1.5.1",
+	"Deps": [
+		{
+			"ImportPath": "github.com/armon/go-radix",
+			"Rev": "fbd82e84e2b13651f3abc5ffd26b65ba71bc8f93"
+		},
+		{
+			"ImportPath": "github.com/go-ini/ini",
+			"Comment": "v0-54-g2e44421",
+			"Rev": "2e44421e256d82ebbf3d4d4fcabe8930b905eff3"
+		},
+		{
+			"ImportPath": "github.com/spance/ipatrie",
+			"Rev": "21b5753e9c57e40a16907214ea4f85e3dcacfc76"
+		}
+	]
+}

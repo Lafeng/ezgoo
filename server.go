@@ -107,9 +107,14 @@ func main() {
 	reRules, err = initReRules()
 	abortIf(err)
 
+	// perfer command arg
+	if listen == NULL {
+		listen = config.Listen
+	}
+
 	ezgoo := &ezgooServer{"http"}
 	serv := &http.Server{
-		Addr:           config.Listen,
+		Addr:           listen,
 		Handler:        ezgoo,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,

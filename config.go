@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
-	"github.com/Lafeng/ezgoo/import/github.com/go-ini/ini"
-	"github.com/Lafeng/ezgoo/import/github.com/tchap/go-patricia/patricia"
+	log "github.com/Lafeng/ezgoo/glog"
 	"github.com/Lafeng/ezgoo/regexp"
+	"github.com/armon/go-radix"
+	"github.com/go-ini/ini"
+	"github.com/spance/ipatrie"
 	"io/ioutil"
+	"net/http"
 	"strings"
 	"sync/atomic"
 )
@@ -181,55 +184,126 @@ func parseScheme(expr string) uint32 {
 }
 
 type AppConfig struct {
-	ForceTls          bool
-	TrustProxy        bool
-	Listen            string
-	TlsCertificate    string
-	TlsCertificateKey string
-	PermitDomains     []string
-	PermitClients     []string
+	ForceTls           bool
+	TrustProxy         bool
+	Listen             string
+	TlsCertificate     string
+	TlsCertificateKey  string
+	domainRestrictions DomainRestriction
+	clientRestrictions ClientRestriction
+	destChecker        *radix.Tree
+	ipaTrie            *ipatrie.Trie
+}
+
+type DomainRestriction struct {
+	Suffixes []string
+	count    int
+}
+
+type ClientRestriction struct {
+	AcceptLanguage string
+	UserAgent      string
+	Addresses      []string
+	prefixCount    int
 }
 
 func initAppConfig() (*AppConfig, error) {
-	conf := new(AppConfig)
-	err := ini.MapTo(conf, "config.ini")
+	cfg, err := ini.Load("config.ini")
 	if err != nil {
 		return nil, err
 	}
-	if len(conf.PermitDomains) > 0 {
-		initDestChecker(conf.PermitDomains)
+	var conf = new(AppConfig)
+	err = cfg.Section("Server").MapTo(conf)
+	if err != nil {
+		return nil, err
 	}
-	if listen != NULL {
-		conf.Listen = listen
+	err = cfg.Section("DomainRestriction").MapTo(&conf.domainRestrictions)
+	if err != nil {
+		return nil, err
 	}
+	err = cfg.Section("ClientRestriction").MapTo(&conf.clientRestrictions)
+	if err != nil {
+		return nil, err
+	}
+	// init restrictions
+	conf.initDomainRestriction()
+	conf.initClientRestriction()
+	conf.PrintInfo()
 	return conf, err
 }
 
-func reverseCharacters(src string) []byte {
+func reverseCharacters(src string) string {
 	a := []byte(src)
 	for i, j := 0, len(a)-1; i < j; i, j = i+1, j-1 {
 		a[j], a[i] = a[i], a[j]
 	}
-	return a
+	return string(a)
 }
 
-var (
-	destChecker *patricia.Trie
-)
+func (c *AppConfig) initDomainRestriction() {
+	keys := c.domainRestrictions.Suffixes
+	if len(keys) <= 0 {
+		return
+	}
+	c.destChecker = radix.New()
+	for _, k := range keys {
+		if len(k) > 0 {
+			c.destChecker.Insert(reverseCharacters(k), true)
+		}
+	}
+	c.destChecker.Walk(func(string, interface{}) bool {
+		c.domainRestrictions.count++
+		return false
+	})
+}
 
-func checkDestHost(host string) bool {
-	if destChecker != nil {
-		_, _, found, _ := destChecker.LongestMatch(reverseCharacters(host))
+func (c *AppConfig) CheckDomainRestriction(host string) bool {
+	if c.destChecker != nil {
+		_, _, found := c.destChecker.LongestPrefix(reverseCharacters(host))
 		return found
 	}
 	return true
 }
 
-func initDestChecker(keys []string) {
-	destChecker = patricia.NewTrie()
-	for _, k := range keys {
-		if len(k) > 0 {
-			destChecker.Set(reverseCharacters(k), true)
+func (c *AppConfig) initClientRestriction() {
+	prefix := c.clientRestrictions.Addresses
+	if len(prefix) <= 0 {
+		return
+	}
+	c.ipaTrie = ipatrie.NewTrie()
+	for _, p := range prefix {
+		a, m, e := ipatrie.ParseCIDR(p)
+		if e == nil {
+			c.ipaTrie.Insert(a, m)
+		} else {
+			log.Warningf("Parse cidr=%s error=%v", p, e)
 		}
 	}
+	c.clientRestrictions.prefixCount = c.ipaTrie.Size()
+}
+
+func (c *AppConfig) CheckClientRestriction(s *Session, r *http.Request) bool {
+	res := c.clientRestrictions
+	if len(res.AcceptLanguage) > 0 && !strings.Contains(r.Header.Get("Accept-Language"), res.AcceptLanguage) {
+		return false
+	}
+
+	if len(res.UserAgent) > 0 && !strings.Contains(r.UserAgent(), res.UserAgent) {
+		return false
+	}
+
+	if c.ipaTrie != nil {
+		remoteAddr := ipatrie.ParseIPv4(s.aAddr)
+		// ipv6 passed
+		if remoteAddr > 0 && !c.ipaTrie.Match(remoteAddr) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *AppConfig) PrintInfo() {
+	d, r := c.domainRestrictions, c.clientRestrictions
+	log.Infof("DomainRestriction count=%d\n", d.count)
+	log.Infof("ClientRestriction AL=[%s] UA=[%s] CIDR=%d\n", r.AcceptLanguage, r.UserAgent, r.prefixCount)
 }

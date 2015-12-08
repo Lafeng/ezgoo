@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/Lafeng/ezgoo/import/github.com/go-ini/ini"
 	"os"
 	"reflect"
 	"testing"
@@ -17,11 +16,7 @@ func TestRules(t *testing.T) {
 }
 
 func TestConfig(t *testing.T) {
-	conf := new(AppConfig)
-	err := ini.MapTo(conf, "config.ini")
-	if err != nil {
-		t.Error(err)
-	}
+	conf, _ := initAppConfig()
 	val := reflect.ValueOf(conf).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
@@ -31,4 +26,6 @@ func TestConfig(t *testing.T) {
 			t.Logf("%s = %v", ft.Name, fv.Interface())
 		}
 	}
+	t.Log(conf.domainRestrictions)
+	t.Log(conf.clientRestrictions)
 }

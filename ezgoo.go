@@ -31,10 +31,10 @@ type ezgooServer struct {
 	proto string
 }
 
-func outputError(w http.ResponseWriter, format string, args ...interface{}) {
+func outputError(w http.ResponseWriter, code int, format string, args ...interface{}) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Del("Content-Length")
-	w.WriteHeader(500)
+	w.WriteHeader(code)
 	fmt.Fprintf(w, format, args...)
 }
 
@@ -57,17 +57,18 @@ type Session struct {
 
 func (x *ezgooServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	se := NewSession(req)
-	if se.Preprocess(req, w) {
+	if se.Preprocess(w, req) {
 		return
 	}
 
 	xReq, err := se.buildPxReq(req)
 	if err == nil {
 		err = se.doProxy(xReq, w)
-	}
-
-	if err != nil {
-		outputError(w, "Error: %v", err)
+		if err != nil {
+			outputError(w, 500, "Error: %v", err)
+		}
+	} else if err == errNotAllowed {
+		outputError(w, 403, "Error: %v", err)
 	}
 }
 
@@ -126,19 +127,21 @@ func (s *Session) DetermineActualRequest(req *http.Request) {
 	}
 }
 
-func (s *Session) Preprocess(req *http.Request, w http.ResponseWriter) (accept bool) {
+func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept bool) {
 	switch s.path {
 	case "/url":
 		next := req.FormValue("url")
 		if next != NULL {
 			http.Redirect(w, req, next, 307)
 			accept = true
+			return
 		}
 
 	case "/robots.txt":
 		w.WriteHeader(200)
 		fmt.Fprint(w, robots_response)
 		accept = true
+		return
 		/*
 			case "/gen_204":
 				w.WriteHeader(204)
@@ -149,6 +152,10 @@ func (s *Session) Preprocess(req *http.Request, w http.ResponseWriter) (accept b
 		w.WriteHeader(200)
 		return true
 	}
+	if !config.CheckClientRestriction(s, req) {
+		w.WriteHeader(403)
+		return true
+	}
 	if config.ForceTls {
 		if s.aProto != "https" {
 			req.URL.Scheme = "https"
@@ -157,6 +164,7 @@ func (s *Session) Preprocess(req *http.Request, w http.ResponseWriter) (accept b
 			return true
 		}
 	}
+
 	return
 }
 
@@ -233,7 +241,7 @@ func (s *Session) buildPxReq(req *http.Request) (xReq *PxReq, err error) {
 		xHeader.Set("Cookie", strings.Join(cookies, "; "))
 	}
 
-	if !checkDestHost(dst.Host) {
+	if !config.CheckDomainRestriction(dst.Host) {
 		return nil, errNotAllowed
 	}
 
@@ -269,9 +277,9 @@ func (s *Session) doProxy(xReq *PxReq, w http.ResponseWriter) (err error) {
 
 	if log.V(1) {
 		if resp != nil {
-			log.Infof("%s - %s - %s -> [%d] %s", s.aAddr, s.aMethod, s.dUserAgent, resp.StatusCode, xReq.url.String())
+			log.Infof("%s %s %s [%d] %s", s.aAddr, s.aMethod, s.dUserAgent, resp.StatusCode, xReq.url.String())
 		} else {
-			log.Infof("%s - %s - %s -> [Err] %s", s.aAddr, s.aMethod, s.dUserAgent, xReq.url.String())
+			log.Infof("%s %s %s [Err] %s", s.aAddr, s.aMethod, s.dUserAgent, xReq.url.String())
 		}
 	}
 	if log.V(3) && resp != nil {
@@ -365,7 +373,7 @@ func (s *Session) processRedirect(target string) string {
 	if uri.Path == "/" && strings.Contains(uri.RawQuery, "gfe_rd=cr") {
 		return "/ncr"
 	}
-	if checkDestHost(uri.Host) {
+	if config.CheckDomainRestriction(uri.Host) {
 		// maybe non-default domain
 		nondefault := uri.Host != default_host
 		if nondefault {
