@@ -8,7 +8,7 @@
       <ContentPattern flags="g">
 		onmousedown="[^\"]+?"
 	  </ContentPattern>
-      <Replacement>target="_blank" referrer="no-referrer"</Replacement>
+      <Replacement>target="_blank" rel="noreferrer"</Replacement>
     </ReRule>
 	
     <ReRule>
