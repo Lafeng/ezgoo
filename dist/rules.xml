@@ -118,7 +118,7 @@
       <!-- json.html: onmousedown\\x3d\\x22return rwt( -->
       <PathPattern>/(?:search|webhp)</PathPattern>
       <ContentPattern flags="g">onmousedown\\\\x3d</ContentPattern>
-      <Replacement>target\\x3d\\x22_blank\\x22 referrer\\x3d\\x22no-referrer\\x22 rwt\\x3d</Replacement>
+      <Replacement>target\\x3d\\x22_blank\\x22 rel\\x3d\\x22noreferrer\\x22 rwt\\x3d</Replacement>
     </ReRule>
 	
     <ReRule>
