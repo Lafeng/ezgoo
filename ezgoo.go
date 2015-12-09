@@ -35,7 +35,11 @@ func outputError(w http.ResponseWriter, code int, format string, args ...interfa
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Del("Content-Length")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, format, args...)
+	if format != NULL {
+		fmt.Fprintf(w, format, args...)
+	} else {
+		fmt.Fprint(w, args...)
+	}
 }
 
 type Session struct {
@@ -67,7 +71,7 @@ func (x *ezgooServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			outputError(w, 500, "Error: %v", err)
 		}
-	} else if err == errNotAllowed {
+	} else {
 		outputError(w, 403, "Error: %v", err)
 	}
 }
@@ -153,7 +157,7 @@ func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept b
 		return true
 	}
 	if !config.CheckClientRestriction(s, req) {
-		w.WriteHeader(403)
+		outputError(w, 403, NULL, errNotAllowed)
 		return true
 	}
 	if config.ForceTls {
