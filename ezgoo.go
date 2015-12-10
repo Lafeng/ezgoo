@@ -31,15 +31,15 @@ type ezgooServer struct {
 	proto string
 }
 
-func outputError(w http.ResponseWriter, code int, format string, args ...interface{}) {
+func outputError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Del("Content-Length")
-	w.WriteHeader(code)
-	if format != NULL {
-		fmt.Fprintf(w, format, args...)
+	if err == errNotAllowed {
+		w.WriteHeader(403)
 	} else {
-		fmt.Fprint(w, args...)
+		w.WriteHeader(500)
 	}
+	fmt.Fprintf(w, "Error: %v", err)
 }
 
 type Session struct {
@@ -68,11 +68,10 @@ func (x *ezgooServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	xReq, err := se.buildPxReq(req)
 	if err == nil {
 		err = se.doProxy(xReq, w)
-		if err != nil {
-			outputError(w, 500, "Error: %v", err)
-		}
-	} else {
-		outputError(w, 403, "Error: %v", err)
+	}
+
+	if err != nil {
+		outputError(w, err)
 	}
 }
 
@@ -157,7 +156,7 @@ func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept b
 		return true
 	}
 	if !config.CheckClientRestriction(s, req) {
-		outputError(w, 403, NULL, errNotAllowed)
+		outputError(w, errNotAllowed)
 		return true
 	}
 	if config.ForceTls {
