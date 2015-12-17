@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/Lafeng/ezgoo",
-	"GoVersion": "go1.5.1",
+	"GoVersion": "go1.5.2",
 	"Deps": [
 		{
 			"ImportPath": "github.com/armon/go-radix",

@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	log "github.com/Lafeng/ezgoo/glog"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -13,12 +12,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	log "github.com/Lafeng/ezgoo/glog"
 )
 
 const (
-	NULL             = ""
-	default_protocol = "https://"
-	default_host     = "www.google.com"
+	NULL              = ""
+	default_protocol  = "https://"
+	default_host      = "www.google.com"
+	maxAcceptedLength = 2 << 20
 )
 
 var (
@@ -307,7 +309,7 @@ func (s *Session) doProxy(xReq *PxReq, w http.ResponseWriter) (err error) {
 
 	pMethod := determineHandler(resp.Header.Get("Content-Type"))
 
-	if pMethod == HD_unknown || s.redirected {
+	if pMethod == HD_unknown || resp.ContentLength > maxAcceptedLength {
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
 	} else {
@@ -437,32 +439,28 @@ func (p Handler) processText(s *Session, w http.ResponseWriter, resp *http.Respo
 		reqHost string = resp.Request.URL.Host
 		reqPath string = resp.Request.URL.Path
 	)
-
-	if gzipped {
-		zr, err = gzip.NewReader(resp.Body)
-		if err == nil {
-			body, err = ioutil.ReadAll(zr)
-			if err != nil {
+	if resp.ContentLength != 0 && resp.Request.Method != "HEAD" {
+		if gzipped {
+			zr, err = gzip.NewReader(resp.Body)
+			if err == nil {
+				body, err = ioutil.ReadAll(zr)
+				if !consumeError(&err) {
+					return dumpError(err)
+				}
+			}
+		} else {
+			body, err = ioutil.ReadAll(resp.Body)
+			if !consumeError(&err) {
 				return dumpError(err)
 			}
-		} else if err != io.EOF {
-			return dumpError(err)
-		}
-	} else {
-		body, err = ioutil.ReadAll(resp.Body)
-		if err != nil && err != io.EOF {
-			return dumpError(err)
 		}
 	}
 
 	w.Header().Del("Content-Length")
 	w.Header().Set("Content-Encoding", "gzip")
-
 	w.WriteHeader(resp.StatusCode)
+
 	if len(body) <= 0 {
-		if err != io.EOF {
-			err = nil
-		}
 		return
 	}
 
@@ -516,6 +514,18 @@ func (p Handler) processText(s *Session, w http.ResponseWriter, resp *http.Respo
 	}
 	zw.Write(body)
 	err = zw.Flush()
+	return
+}
+
+func consumeError(ePtr *error) (ret bool) {
+	var err = *ePtr
+	if err == nil {
+		return true
+	}
+	ret = err != io.EOF && err != http.ErrBodyReadAfterClose
+	if ret {
+		*ePtr = nil
+	}
 	return
 }
 
