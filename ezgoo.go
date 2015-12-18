@@ -383,14 +383,8 @@ func (s *Session) processRedirect(target string) string {
 	*/
 	if uri.Path == s.url.Path && uri.Host != default_host {
 		// new redirect policy
-		ref := s.url.RawQuery
-		if len(ref) > 0 {
-			ref += "&gfe_rd=cr"
-		} else {
-			ref = "gfe_rd=cr"
-		}
-		if strings.HasPrefix(uri.RawQuery, ref) {
-			params := uri.Query()
+		params := uri.Query()
+		if params.Get("gfe_rd") != NULL {
 			params.Set("gfe_rd", "cr")
 			params.Set("gws_rd", "cr")
 			return uri.Path + "?" + params.Encode()
