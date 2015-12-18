@@ -49,8 +49,8 @@ type Session struct {
 	dProto     string
 	dMethod    string
 	dUserAgent string
-	path       string
-	uri        string
+	url        *url.URL
+	uri        string // RequestURI with parameters
 	body       io.ReadCloser
 	aAddr      string
 	aProto     string
@@ -82,7 +82,7 @@ func NewSession(req *http.Request) *Session {
 		dAddr:      req.RemoteAddr,
 		dMethod:    req.Method,
 		dUserAgent: req.UserAgent(),
-		path:       req.URL.Path,
+		url:        req.URL,
 		uri:        req.RequestURI,
 		body:       req.Body,
 		aAddr:      req.RemoteAddr,
@@ -94,6 +94,7 @@ func NewSession(req *http.Request) *Session {
 	if config.TrustProxy {
 		s.DetermineActualRequest(req)
 	}
+	log.Infoln("uri", req.RequestURI)
 	return s
 }
 
@@ -133,7 +134,7 @@ func (s *Session) DetermineActualRequest(req *http.Request) {
 }
 
 func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept bool) {
-	switch s.path {
+	switch s.url.Path {
 	case "/url":
 		next := req.FormValue("url")
 		if next != NULL {
@@ -375,8 +376,25 @@ func (s *Session) processRedirect(target string) string {
 	uri, _ := url.Parse(target)
 
 	// prevent redirecting to country site
-	if uri.Path == "/" && strings.Contains(uri.RawQuery, "gfe_rd=cr") {
-		return "/ncr"
+	/*
+		if uri.Path == "/" && strings.Contains(uri.RawQuery, "gfe_rd=cr") {
+			return "/ncr"
+		}
+	*/
+	if uri.Path == s.url.Path && uri.Host != default_host {
+		// new redirect policy
+		ref := s.url.RawQuery
+		if len(ref) > 0 {
+			ref += "&gfe_rd=cr"
+		} else {
+			ref = "gfe_rd=cr"
+		}
+		if strings.HasPrefix(uri.RawQuery, ref) {
+			params := uri.Query()
+			params.Set("gfe_rd", "cr")
+			params.Set("gws_rd", "cr")
+			return uri.Path + "?" + params.Encode()
+		}
 	}
 	if config.CheckDomainRestriction(uri.Host) {
 		// maybe non-default domain
