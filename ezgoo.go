@@ -86,7 +86,6 @@ func NewSession(req *http.Request) *Session {
 		uri:        req.RequestURI,
 		body:       req.Body,
 		aAddr:      req.RemoteAddr,
-		aProto:     req.Proto, //???
 		aHost:      req.Host,
 		aPort:      -1,
 		aMethod:    req.Method,
@@ -162,13 +161,11 @@ func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept b
 		outputError(w, errNotAllowed)
 		return true
 	}
-	if config.ForceTls {
-		if s.aProto != "https" {
-			req.URL.Scheme = "https"
-			next := req.URL.String()
-			http.Redirect(w, req, next, 301)
-			return true
-		}
+	if config.ForceHttps && s.aProto != "https" {
+		req.URL.Scheme = "https"
+		next := req.URL.String()
+		http.Redirect(w, req, next, 301)
+		return true
 	}
 
 	return

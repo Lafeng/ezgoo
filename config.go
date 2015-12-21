@@ -2,17 +2,19 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/xml"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strings"
+	"sync/atomic"
+
 	log "github.com/Lafeng/ezgoo/glog"
 	"github.com/Lafeng/ezgoo/regexp"
 	"github.com/armon/go-radix"
 	"github.com/go-ini/ini"
 	"github.com/spance/ipatrie"
-	"io/ioutil"
-	"net/http"
-	"strings"
-	"sync/atomic"
 )
 
 type RegexpDescr struct {
@@ -184,11 +186,9 @@ func parseScheme(expr string) uint32 {
 }
 
 type AppConfig struct {
-	ForceTls           bool
+	ForceHttps         bool
 	TrustProxy         bool
-	Listen             string
-	TlsCertificate     string
-	TlsCertificateKey  string
+	servers            []*AppServ
 	domainRestrictions DomainRestriction
 	clientRestrictions ClientRestriction
 	destChecker        *radix.Tree
@@ -207,13 +207,28 @@ type ClientRestriction struct {
 	prefixCount    int
 }
 
+type AppServ struct {
+	tlType            TLType
+	cert              *tls.Certificate
+	Listen            string
+	TlsCertificate    string
+	TlsCertificateKey string
+}
+
+type TLType int
+
+const (
+	TL_PLAIN TLType = iota
+	TL_TLS
+)
+
 func initAppConfig() (*AppConfig, error) {
 	cfg, err := ini.Load("config.ini")
 	if err != nil {
 		return nil, err
 	}
 	var conf = new(AppConfig)
-	err = cfg.Section("Server").MapTo(conf)
+	err = cfg.Section("Basic").MapTo(conf)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +237,20 @@ func initAppConfig() (*AppConfig, error) {
 		return nil, err
 	}
 	err = cfg.Section("ClientRestriction").MapTo(&conf.clientRestrictions)
+	if err != nil {
+		return nil, err
+	}
+	var servs = make([]*AppServ, 2)
+	for i, label := range []string{"0HTTP.Server", "1HTTPS.Server"} {
+		var serv = new(AppServ)
+		servs[i] = serv
+		serv.tlType = TLType(int(label[0]) - 0x30)
+		err = cfg.Section(label[1:]).MapTo(serv)
+		if err != nil {
+			return nil, err
+		}
+	}
+	err = conf.verifyServerConfig(servs)
 	if err != nil {
 		return nil, err
 	}
@@ -300,6 +329,35 @@ func (c *AppConfig) CheckClientRestriction(s *Session, r *http.Request) bool {
 		}
 	}
 	return true
+}
+
+func (c *AppConfig) verifyServerConfig(_servs []*AppServ) error {
+	var servs = make([]*AppServ, 0, 2)
+	for _, s := range _servs {
+		switch s.tlType {
+		case TL_PLAIN: // http
+			if len(s.Listen) > 0 {
+				servs = append(servs, s)
+			}
+		case TL_TLS: // https
+			if len(s.Listen) > 0 {
+				servs = append(servs, s)
+			} else {
+				continue
+			}
+			cert, err := tls.LoadX509KeyPair(s.TlsCertificate, s.TlsCertificateKey)
+			if err == nil {
+				s.cert = &cert
+			} else {
+				return err
+			}
+		}
+	}
+	if len(servs) < 1 {
+		return fmt.Errorf("both http.server and https.server were not specified")
+	}
+	c.servers = servs
+	return nil
 }
 
 func (c *AppConfig) PrintInfo() {
