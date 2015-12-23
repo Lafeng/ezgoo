@@ -3,10 +3,15 @@ package main
 import (
 	"bytes"
 	"fmt"
-	log "github.com/Lafeng/ezgoo/glog"
 	"net/http"
 	"runtime"
 	"strings"
+
+	log "github.com/Lafeng/ezgoo/glog"
+)
+
+const (
+	robots_response = "User-agent: *\nDisallow: /\n"
 )
 
 func dumpHeader(label string, h http.Header) {
@@ -51,24 +56,3 @@ func dumpError(v interface{}) error {
 	}
 	return nil
 }
-
-const robots_response = `User-agent: *
-Disallow: /
-`
-
-const debug_image_interceptor = `<head>
-<script>
-(function(){
-	var _nativeImage=Image;
-	Image=function(){
-		Object.defineProperty(this, "src", {
-			set: function(v) {
-				console.error("interceptor.setter/src="+v);
-				var img=new _nativeImage;
-				img.src=v;
-			}
-		});
-	}
-})();
-</script>
-`

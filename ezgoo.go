@@ -64,6 +64,7 @@ type Session struct {
 func (x *ezgooServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	se := NewSession(req)
 	if se.Preprocess(w, req) {
+		log.Infof("%s %s %s [PASS] %s", se.aAddr, se.aMethod, se.dUserAgent, req.URL.String())
 		return
 	}
 
@@ -93,7 +94,6 @@ func NewSession(req *http.Request) *Session {
 	if config.TrustProxy {
 		s.DetermineActualRequest(req)
 	}
-	log.Infoln("uri", req.RequestURI)
 	return s
 }
 
@@ -137,10 +137,14 @@ func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept b
 	case "/url":
 		next := req.FormValue("url")
 		if next != NULL {
-			http.Redirect(w, req, next, 307)
+			http.Redirect(w, req, next, 302)
 			accept = true
 			return
 		}
+	case "/setprefdomain":
+		http.Redirect(w, req, "/", 301)
+		accept = true
+		return
 
 	case "/robots.txt":
 		w.WriteHeader(200)
@@ -151,6 +155,7 @@ func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept b
 			case "/gen_204":
 				w.WriteHeader(204)
 				accept = true
+				return
 		*/
 	}
 	if s.aMethod == "HEAD" {
@@ -303,7 +308,11 @@ func (s *Session) doProxy(xReq *PxReq, w http.ResponseWriter) (err error) {
 		}
 	}
 
-	s.processOutputHeader(xReq, resp, w)
+	err = s.processOutputHeader(xReq, resp, w)
+	if err != nil {
+		err = avoidCountryRedirect(xReq, w)
+		return
+	}
 
 	pMethod := determineHandler(resp.Header.Get("Content-Type"))
 
@@ -316,7 +325,12 @@ func (s *Session) doProxy(xReq *PxReq, w http.ResponseWriter) (err error) {
 	return
 }
 
-func (s *Session) processOutputHeader(xReq *PxReq, resp *http.Response, w http.ResponseWriter) {
+func (s *Session) processOutputHeader(xReq *PxReq, resp *http.Response, w http.ResponseWriter) (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = e.(error)
+		}
+	}()
 	wHeader := w.Header()
 	for k, array := range resp.Header {
 		switch k {
@@ -362,29 +376,28 @@ func (s *Session) processOutputHeader(xReq *PxReq, resp *http.Response, w http.R
 		if v := ck.String(); v != NULL {
 			wHeader.Add("Set-Cookie", v)
 		}
-		// debug
-		if s.redirected && ck.Name == "GOOGLE_ABUSE_EXEMPTION" && xReq.url.Path == "/search" {
-			log.Warningln("GOOGLE_ABUSE_EXEMPTION failed")
-		}
 	}
+	return
 }
 
 func (s *Session) processRedirect(target string) string {
 	uri, _ := url.Parse(target)
-
-	// prevent redirecting to country site
 	/*
+		// prevent redirecting to country site
+		// 1. ncr
 		if uri.Path == "/" && strings.Contains(uri.RawQuery, "gfe_rd=cr") {
 			return "/ncr"
 		}
-	*/
-	if uri.Path == s.url.Path && uri.Host != default_host {
-		// new redirect policy
-		params := uri.Query()
+		// 2. append _rd param by redirection or internal
 		if params.Get("gfe_rd") != NULL {
 			params.Set("gfe_rd", "cr")
 			params.Set("gws_rd", "cr")
 			return uri.Path + "?" + params.Encode()
+		}
+	*/
+	if uri.Path == s.url.Path && uri.Host != default_host {
+		if strings.Contains(target, "gfe_rd=") {
+			panic(bad_cr)
 		}
 	}
 	if config.CheckDomainRestriction(uri.Host) {
