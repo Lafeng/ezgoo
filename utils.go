@@ -56,3 +56,19 @@ func dumpError(v interface{}) error {
 	}
 	return nil
 }
+
+func cookieString(ck *http.Cookie, reset_domain *string, setCookie bool) string {
+	if !setCookie {
+		// inaccurate
+		return ck.Name + "=" + ck.Value
+	}
+	if reset_domain != nil {
+		dot := strings.IndexByte(*reset_domain, '.')
+		if dot > 1 {
+			ck.Domain = *reset_domain
+		} else {
+			ck.Domain = NULL
+		}
+	}
+	return ck.String()
+}

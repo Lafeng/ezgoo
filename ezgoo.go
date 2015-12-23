@@ -57,12 +57,14 @@ type Session struct {
 	aHost      string
 	aPort      int
 	aMethod    string
+	plainHost  string
 	abusing    bool
 	redirected bool
 }
 
 func (x *ezgooServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	se := NewSession(req)
+	se.aProto = x.proto
 	if se.Preprocess(w, req) {
 		log.Infof("%s %s %s [PASS] %s", se.aAddr, se.aMethod, se.dUserAgent, req.URL.String())
 		return
@@ -93,6 +95,12 @@ func NewSession(req *http.Request) *Session {
 	}
 	if config.TrustProxy {
 		s.DetermineActualRequest(req)
+	}
+	// :port in host
+	if pos := strings.IndexByte(s.aHost, ':'); pos > 0 {
+		s.plainHost = s.aHost[:pos]
+	} else {
+		s.plainHost = s.aHost
 	}
 	return s
 }
@@ -168,6 +176,8 @@ func (s *Session) Preprocess(w http.ResponseWriter, req *http.Request) (accept b
 	}
 	if config.ForceHttps && s.aProto != "https" {
 		req.URL.Scheme = "https"
+		// URL.Host is blank
+		req.URL.Host = s.aHost
 		next := req.URL.String()
 		http.Redirect(w, req, next, 301)
 		return true
@@ -298,11 +308,8 @@ func (s *Session) doProxy(xReq *PxReq, w http.ResponseWriter) (err error) {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		if e, y := err.(*url.Error); y {
-			s.redirected = e.Err == err30xRedirect
-		}
-		if s.redirected {
-			err = nil
+		if e, y := err.(*url.Error); y && e.Err == err30xRedirect {
+			s.redirected, err = true, nil
 		} else {
 			return dumpError(err)
 		}
@@ -310,7 +317,7 @@ func (s *Session) doProxy(xReq *PxReq, w http.ResponseWriter) (err error) {
 
 	err = s.processOutputHeader(xReq, resp, w)
 	if err != nil {
-		err = avoidCountryRedirect(xReq, w)
+		err = s.avoidCountryRedirect(xReq, w)
 		return
 	}
 
@@ -354,26 +361,17 @@ func (s *Session) processOutputHeader(xReq *PxReq, resp *http.Response, w http.R
 		}
 	}
 	wHeader.Set("Server", "ezgoo")
-	var myDomain string
-	var alterCookie = xReq.nondefault == 0xf
+	var alterCookiePath = xReq.nondefault == 0xf
 	for _, ck := range resp.Cookies() {
-		if alterCookie {
+		if alterCookiePath {
 			if ck.Domain == NULL || strings.HasPrefix(ck.Domain, ".") {
+				// prevent ck.path==/!.some-host
 				ck.Path = fmt.Sprintf("/!%s%s", xReq.url.Host, ck.Path)
 			} else {
 				ck.Path = fmt.Sprintf("/!%s%s", ck.Domain, ck.Path)
 			}
 		}
-		if myDomain == NULL {
-			// domain:port ?
-			if pos := strings.IndexByte(s.aHost, ':'); pos > 0 {
-				myDomain = s.aHost[:pos]
-			} else {
-				myDomain = s.aHost
-			}
-		}
-		ck.Domain = myDomain
-		if v := ck.String(); v != NULL {
+		if v := cookieString(ck, &s.plainHost, true); v != NULL {
 			wHeader.Add("Set-Cookie", v)
 		}
 	}
@@ -539,12 +537,22 @@ func (p Handler) processText(s *Session, w http.ResponseWriter, resp *http.Respo
 	return
 }
 
+const (
+	errReadClosed = "http: read on closed" // src/net/http/transport.go:1290
+)
+
+// return false if e is a serious error
+// if not then set e to nil
 func consumeError(ePtr *error) (ret bool) {
 	var err = *ePtr
 	if err == nil {
 		return true
 	}
-	ret = err != io.EOF && err != http.ErrBodyReadAfterClose
+	ret = (err == io.EOF || err == io.ErrUnexpectedEOF || err == http.ErrBodyReadAfterClose)
+	if !ret {
+		// check if the e is the private error! fuck the transport.go!
+		ret = strings.HasPrefix(err.Error(), errReadClosed)
+	}
 	if ret {
 		*ePtr = nil
 	}
