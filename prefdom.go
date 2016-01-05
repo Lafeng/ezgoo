@@ -12,7 +12,7 @@ import (
 
 var (
 	bad_cr = fmt.Errorf("cr")
-	reSig  = regexp.MustCompile("sig=[^&]+")
+	reSig  = regexp.MustCompile(`sig=[^&'"=]+`)
 )
 
 func (s *Session) avoidCountryRedirect(xReq *PxReq, w http.ResponseWriter) (err error) {
