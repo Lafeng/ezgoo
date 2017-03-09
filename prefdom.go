@@ -89,11 +89,11 @@ func httpCallEx(req *http.Request, ignoreRd bool) (resp *http.Response, body str
 	defer resp.Body.Close()
 	var b []byte
 	b, err = ioutil.ReadAll(resp.Body)
-	if !consumeError(&err) {
-		panic(err)
-	}
 	if b != nil {
 		body = string(b)
+	}
+	if !consumeError(&err) {
+		log.Warningln(err)
 	}
 	return
 }

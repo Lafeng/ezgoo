@@ -360,7 +360,9 @@ func (s *Session) processOutputHeader(xReq *PxReq, resp *http.Response, w http.R
 			}
 		}
 	}
+
 	wHeader.Set("Server", "ezgoo")
+	wHeader.Set("Referrer-Policy", "no-referrer")
 	var alterCookiePath = xReq.nondefault == 0xf
 	for _, ck := range resp.Cookies() {
 		if alterCookiePath {
